@@ -6,20 +6,30 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx db/migrate.ts",
+    "db:seed": "tsx db/seed.ts",
+    "db:setup": "tsx db/setup.ts",
+    "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@google/genai": "latest",
-    "@vercel/ai": "latest",
+    "ai": "latest",
+    "dotenv": "^16.4.7",
     "next": "latest",
+    "pg": "^8.13.1",
     "react": "latest",
     "react-dom": "latest",
     "zod": "latest"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
     "@types/node": "latest",
+    "@types/pg": "^8.11.10",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "pg-mem": "^3.0.14",
+    "tsx": "^4.19.2",
     "typescript": "latest"
   }
 }
