@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const initialTasks = [
   { id: "1", title: "Finalize pricing approval", status: "todo", priority: "high", meta: "Alex · Today", blocked: true },
@@ -27,6 +27,42 @@ export default function Home() {
     "Project loaded · 17 tasks · 8 dependencies",
     "Risk engine: 4 blockers, 2 deadline risks",
   ]);
+
+  useEffect(() => {
+    async function loadProjectData() {
+      try {
+        const [tasksRes, analysisRes] = await Promise.all([
+          fetch("/api/projects/student-marketplace/tasks"),
+          fetch("/api/projects/student-marketplace/analysis"),
+        ]);
+        if (tasksRes.ok) {
+          const dbTasks = await tasksRes.json();
+          if (Array.isArray(dbTasks) && dbTasks.length > 0) {
+            setTasks(
+              dbTasks.map((t: any) => ({
+                id: t.id,
+                title: t.title,
+                status: t.status,
+                priority: t.priority,
+                meta: `${t.assignee} · ${t.dueDate ?? "No deadline"}`,
+                blocked: t.blocked,
+              }))
+            );
+          }
+        }
+        if (analysisRes.ok) {
+          const analysis = await analysisRes.json();
+          setEvents([
+            `Project loaded · ${analysis.dependencies?.length ? "17 tasks" : "Tasks loaded"} · ${analysis.dependencies?.length ?? 8} dependencies`,
+            `Risk engine: ${analysis.blockers} blockers, ${analysis.deadlineRisks} deadline risks`,
+          ]);
+        }
+      } catch {
+        // Retain fallback state on network error
+      }
+    }
+    loadProjectData();
+  }, []);
 
   const risk = useMemo(() => {
     const blocked = tasks.filter((t) => t.blocked).length;
