@@ -69,19 +69,34 @@ export default function Home() {
     return blocked >= 3 ? "HIGH" : blocked >= 1 ? "MEDIUM" : "LOW";
   }, [tasks]);
 
+  const [suggestedAction, setSuggestedAction] = useState(
+    "Rahul has 11 active tasks. I recommend moving Analytics events to Maya and prioritizing pricing approval."
+  );
+
   async function runAgent() {
     setRunning(true);
-    setEvents((e) => [...e, "Taskmaster is analyzing blockers, dependencies and workload…"]);
+    setEvents((e) => [...e, "Taskmaster Agent: inspecting project state via Google ADK read tools…"]);
     try {
-      const res = await fetch("/api/agent", {
+      const res = await fetch("/api/projects/student-marketplace/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal: prompt || "Get this project back on track." }),
       });
       const data = await res.json();
-      setEvents((e) => [...e, data.summary ?? "Agent completed a planning cycle."]);
+      if (data.plan) {
+        setSuggestedAction(data.plan.summary);
+        setEvents((e) => [
+          ...e,
+          `Agent status: ${data.status} · ${data.stepsCount} steps executed`,
+          `Recovery Plan: ${data.plan.summary}`,
+          ...((data.plan.findings || []).slice(0, 2).map((f: any) => `Finding: [${f.type}] ${f.title}`)),
+        ]);
+      } else {
+        setSuggestedAction(data.summary || "Agent completed planning cycle.");
+        setEvents((e) => [...e, data.summary ?? "Agent completed a planning cycle."]);
+      }
     } catch {
-      setEvents((e) => [...e, "Demo mode: agent service is not configured yet. Core workflow remains interactive."]);
+      setEvents((e) => [...e, "Agent service connection error. Please check server logs."]);
     } finally {
       setRunning(false);
       setPrompt("");
@@ -193,7 +208,7 @@ export default function Home() {
               <div className="tm-agent-body">
                 <div className="tm-risk">
                   <strong>Suggested action</strong>
-                  <div style={{ marginTop: 6, fontSize: 12 }}>Rahul has 11 active tasks. I recommend moving Analytics events to Maya and prioritizing pricing approval.</div>
+                  <div style={{ marginTop: 6, fontSize: 12 }}>{suggestedAction}</div>
                 </div>
 
                 {!approved && (
