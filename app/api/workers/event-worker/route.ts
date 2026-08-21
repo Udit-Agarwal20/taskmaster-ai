@@ -5,11 +5,26 @@ export const runtime = "nodejs";
 
 /**
  * Cloud Run Pub/Sub Push Subscription Endpoint.
- * Receives messages pushed by Google Cloud Pub/Sub, decodes the payload,
- * and executes the idempotent Taskmaster workflow.
+ * Receives authenticated messages pushed by Google Cloud Pub/Sub,
+ * validates authorization, decodes the payload, and executes the idempotent workflow.
  */
 export async function POST(req: NextRequest) {
   try {
+    // 1. Verify push authentication token when configured
+    const verificationToken = process.env.PUBSUB_VERIFICATION_TOKEN;
+    if (verificationToken) {
+      const authHeader = req.headers.get("authorization");
+      const urlToken = req.nextUrl.searchParams.get("token");
+      const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+      if (bearer !== verificationToken && urlToken !== verificationToken) {
+        return NextResponse.json(
+          { error: "Unauthorized: Invalid Pub/Sub verification token" },
+          { status: 401 }
+        );
+      }
+    }
+
     const rawBody = await req.json();
 
     let messageData: any;
