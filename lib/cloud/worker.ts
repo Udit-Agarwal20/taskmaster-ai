@@ -1,10 +1,11 @@
 import { eventRepository, EventRecord } from "@/db/repositories/event.repository";
+import { agentRunRepository } from "@/db/repositories/agent-run.repository";
 import { workflowService } from "@/lib/services/workflow.service";
 import { PubSubEventMessage } from "./pubsub";
 
 export type WorkerProcessResult = {
   success: boolean;
-  status: "processed" | "already_processed" | "failed" | "ignored";
+  status: "processed" | "already_processed" | "active_lease" | "waiting_approval" | "failed" | "ignored";
   eventId: string;
   runId?: string | null;
   workflowState?: string | null;
@@ -13,10 +14,11 @@ export type WorkerProcessResult = {
 };
 
 /**
- * Core idempotent event processing logic for both Pull Subscriber and Cloud Run Push Subscriber.
+ * Core hardened event processing logic with processing lease & stale run recovery.
  */
 export async function processPubSubWorkerMessage(
-  data: PubSubEventMessage | any
+  data: PubSubEventMessage | any,
+  staleThresholdMs: number = 60000
 ): Promise<WorkerProcessResult> {
   const start = Date.now();
   const eventId = data.eventId;
@@ -25,35 +27,85 @@ export async function processPubSubWorkerMessage(
     throw new Error("Invalid Pub/Sub message: missing 'eventId'");
   }
 
-  // 1. Fetch current event from PostgreSQL
-  const event = await eventRepository.findById(eventId);
-  if (!event) {
+  // 1. Acquire processing lease with stale heartbeat recovery
+  const lease = await eventRepository.acquireProcessingLease(eventId, staleThresholdMs);
+
+  if (!lease.acquired) {
+    if (lease.reason === "already_processed") {
+      return {
+        success: true,
+        status: "already_processed",
+        eventId,
+        runId: lease.event?.linkedRunId ?? null,
+        durationMs: Date.now() - start,
+      };
+    }
+    if (lease.reason === "active_lease") {
+      return {
+        success: true,
+        status: "active_lease",
+        eventId,
+        durationMs: Date.now() - start,
+      };
+    }
     throw new Error(`Event '${eventId}' not found in database`);
   }
 
-  // 2. Idempotency Guard: if already processed, acknowledge safely without re-running workflow
-  if (event.status === "processed") {
-    return {
-      success: true,
-      status: "already_processed",
-      eventId: event.id,
-      runId: event.linkedRunId,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  // 3. Mark event as 'processing' and increment attempt count
-  await eventRepository.updateStatus(
-    event.id,
-    "processing",
-    null,
-    null,
-    null,
-    true
-  );
+  const { event, attemptId, isRecovery } = lease;
 
   try {
-    // 4. Dispatch to Taskmaster workflow service
+    // 2. Check for existing linked run to prevent duplicate workflows on redeliveries
+    if (event.linkedRunId) {
+      const existingRun = await agentRunRepository.findById(event.linkedRunId);
+      if (existingRun) {
+        if (existingRun.state === "COMPLETED") {
+          await eventRepository.updateStatus(
+            event.id,
+            "processed",
+            new Date().toISOString(),
+            existingRun.id
+          );
+          return {
+            success: true,
+            status: "already_processed",
+            eventId: event.id,
+            runId: existingRun.id,
+            workflowState: "COMPLETED",
+            durationMs: Date.now() - start,
+          };
+        }
+
+        if (existingRun.state === "WAITING_FOR_APPROVAL") {
+          return {
+            success: true,
+            status: "waiting_approval",
+            eventId: event.id,
+            runId: existingRun.id,
+            workflowState: "WAITING_FOR_APPROVAL",
+            durationMs: Date.now() - start,
+          };
+        }
+
+        // Resume existing run if interrupted
+        const resumedRun = await workflowService.executeWorkflowStage(existingRun.id);
+        await eventRepository.updateStatus(
+          event.id,
+          "processed",
+          new Date().toISOString(),
+          resumedRun.id
+        );
+        return {
+          success: true,
+          status: "processed",
+          eventId: event.id,
+          runId: resumedRun.id,
+          workflowState: resumedRun.state,
+          durationMs: Date.now() - start,
+        };
+      }
+    }
+
+    // 3. Dispatch to Taskmaster workflow service
     const workflowResult = await workflowService.processEvent({
       type: event.type,
       projectId: event.projectId,
@@ -64,7 +116,7 @@ export async function processPubSubWorkerMessage(
 
     const runId = workflowResult.run?.id ?? null;
 
-    // 5. Mark event as 'processed'
+    // 4. Mark event as 'processed'
     await eventRepository.updateStatus(
       event.id,
       "processed",
@@ -83,7 +135,7 @@ export async function processPubSubWorkerMessage(
       durationMs: Date.now() - start,
     };
   } catch (err: any) {
-    // 6. Record failure state in PostgreSQL
+    // 5. Record failure state in PostgreSQL
     await eventRepository.updateStatus(
       event.id,
       "failed",

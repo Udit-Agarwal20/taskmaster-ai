@@ -90,6 +90,9 @@ export async function runSchemaMigration(): Promise<void> {
     ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE events ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS last_error TEXT;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS processing_heartbeat_at TIMESTAMPTZ;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS processing_attempt_id TEXT;
   `;
 
   try {
