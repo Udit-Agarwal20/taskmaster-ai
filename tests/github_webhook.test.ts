@@ -225,20 +225,36 @@ describe("Milestone 4A: GitHub Event-Driven Integration", () => {
     const res = await webhookRoute.POST(req);
     assert.equal(res.status, 200);
     const data = await res.json();
-    assert.equal(data.status, "processed");
+    assert.equal(data.status, "queued");
     assert.ok(data.eventId);
-    assert.ok(data.runId);
+    assert.ok(data.deliveryId);
 
-    // 8. Verify normalized event persisted in events table
+    // 8. Verify normalized event persisted in events table with status 'queued'
     const persistedEvent = await eventRepository.findById(data.eventId);
     assert.ok(persistedEvent);
     assert.equal(persistedEvent?.type, "GITHUB_PULL_REQUEST_MERGED");
     assert.equal(persistedEvent?.source, "github");
     assert.equal(persistedEvent?.idempotencyKey, `github:${deliveryId}`);
     assert.equal(persistedEvent?.projectId, DEMO_PROJECT_ID);
+    assert.equal(persistedEvent?.status, "queued");
+
+    // Execute async worker to process the queued event
+    const { processPubSubWorkerMessage } = await import("../lib/cloud/worker");
+    const workerRes = await processPubSubWorkerMessage({
+      eventId: data.eventId,
+      eventType: persistedEvent.type,
+      projectId: persistedEvent.projectId,
+      source: persistedEvent.source,
+      idempotencyKey: persistedEvent.idempotencyKey,
+      payload: persistedEvent.payload,
+    });
+
+    assert.equal(workerRes.success, true);
+    assert.equal(workerRes.status, "processed");
+    assert.ok(workerRes.runId);
 
     // 10 & 11. Verify workflow run created with GitHub context
-    const run = await agentRunRepository.findById(data.runId);
+    const run = await agentRunRepository.findById(workerRes.runId!);
     assert.ok(run);
     assert.equal(run?.triggerType, "GITHUB_PULL_REQUEST_MERGED");
     assert.ok(run?.goal.includes("PR #42"));
