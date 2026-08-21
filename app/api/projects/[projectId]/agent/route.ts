@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { executeTaskmasterAgent } from "@/agent/executor";
+import { workflowService } from "@/lib/services/workflow.service";
 import { projectRepository } from "@/db/repositories";
 import { projectIdParamSchema } from "@/lib/validation";
 import { z } from "zod";
@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 const agentGoalSchema = z.object({
   goal: z.string().min(1, "Goal is required").max(1000).optional().default("Get this project back on track."),
+  idempotencyKey: z.string().optional(),
 });
 
 export async function POST(
@@ -40,19 +41,30 @@ export async function POST(
     }
 
     const goal = validatedBody.data.goal;
-    const result = await executeTaskmasterAgent({
+    const idempotencyKey = validatedBody.data.idempotencyKey;
+
+    // 1. Idempotent workflow run creation
+    const { run } = await workflowService.createOrGetRun({
       projectId,
       goal,
+      triggerType: "USER_GOAL",
+      idempotencyKey: idempotencyKey ?? `goal:${projectId}:${Buffer.from(goal).toString("base64")}`,
     });
 
+    // 2. Execute workflow stage
+    const executedRun = await workflowService.executeWorkflowStage(run.id);
+
     return NextResponse.json({
-      agentRunId: result.agentRunId,
-      status: result.state,
-      plan: result.plan,
-      findings: result.plan?.findings ?? [],
-      proposedActions: result.plan?.proposedActions ?? [],
-      summary: result.summary,
-      stepsCount: result.stepsCount,
+      agentRunId: executedRun.id,
+      status: executedRun.state,
+      currentStep: executedRun.currentStep,
+      plan: executedRun.plan,
+      findings: executedRun.plan?.findings ?? [],
+      proposedActions: executedRun.plan?.proposedActions ?? [],
+      summary: executedRun.summary ?? (executedRun.plan?.summary || "Planning completed."),
+      waitingReason: executedRun.waitingReason,
+      expectedEventType: executedRun.expectedEventType,
+      stepsCount: 0,
     });
   } catch (error: any) {
     console.error("POST /api/projects/[projectId]/agent failed:", error.message);

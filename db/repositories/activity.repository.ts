@@ -53,6 +53,10 @@ export class ActivityRepository {
     );
     return res.rows[0];
   }
+
+  async create(input: CreateActivityInput): Promise<ActivityLog> {
+    return this.log(input);
+  }
 }
 
 export const activityRepository = new ActivityRepository();

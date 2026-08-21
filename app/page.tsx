@@ -72,10 +72,12 @@ export default function Home() {
   const [suggestedAction, setSuggestedAction] = useState(
     "Rahul has 11 active tasks. I recommend moving Analytics events to Maya and prioritizing pricing approval."
   );
+  const [workflowState, setWorkflowState] = useState<string>("ONLINE");
 
   async function runAgent() {
     setRunning(true);
-    setEvents((e) => [...e, "Taskmaster Agent: inspecting project state via Google ADK read tools…"]);
+    setWorkflowState("PLANNING");
+    setEvents((e) => [...e, "Taskmaster Workflow: inspecting project state via Google ADK read tools…"]);
     try {
       const res = await fetch("/api/projects/student-marketplace/agent", {
         method: "POST",
@@ -83,19 +85,23 @@ export default function Home() {
         body: JSON.stringify({ goal: prompt || "Get this project back on track." }),
       });
       const data = await res.json();
+      if (data.status) {
+        setWorkflowState(data.status);
+      }
       if (data.plan) {
         setSuggestedAction(data.plan.summary);
         setEvents((e) => [
           ...e,
-          `Agent status: ${data.status} · ${data.stepsCount} steps executed`,
+          `Workflow State: ${data.status}`,
           `Recovery Plan: ${data.plan.summary}`,
           ...((data.plan.findings || []).slice(0, 2).map((f: any) => `Finding: [${f.type}] ${f.title}`)),
         ]);
       } else {
-        setSuggestedAction(data.summary || "Agent completed planning cycle.");
-        setEvents((e) => [...e, data.summary ?? "Agent completed a planning cycle."]);
+        setSuggestedAction(data.summary || "Workflow planning cycle completed.");
+        setEvents((e) => [...e, data.summary ?? "Workflow completed a planning cycle."]);
       }
     } catch {
+      setWorkflowState("FAILED");
       setEvents((e) => [...e, "Agent service connection error. Please check server logs."]);
     } finally {
       setRunning(false);
@@ -122,10 +128,65 @@ export default function Home() {
     }
   }
 
+  const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
+
+  async function resolveApproval(decision: "approve" | "reject") {
+    if (!pendingApprovalId) {
+      setApproved(true);
+      if (decision === "approve") {
+        setEvents((e) => [...e, "Approval granted · workload change applied · verification passed."]);
+        setTasks((current) => current.map((t) => (t.id === "4" ? { ...t, meta: "Maya · Thu" } : t)));
+      } else {
+        setEvents((e) => [...e, "Action rejected by operator · task remained unmodified."]);
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/approvals/${pendingApprovalId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, approvedBy: "Udit" }),
+      });
+      const data = await res.json();
+      setApproved(true);
+      setPendingApprovalId(null);
+      if (decision === "approve") {
+        setWorkflowState("COMPLETED");
+        setEvents((e) => [
+          ...e,
+          `✓ Approval granted · ${data.summary || "Reassignment executed and verified."}`,
+        ]);
+        // Reload tasks
+        const tasksRes = await fetch("/api/projects/student-marketplace/tasks");
+        if (tasksRes.ok) {
+          const dbTasks = await tasksRes.json();
+          setTasks(
+            dbTasks.map((t: any) => ({
+              id: t.id,
+              title: t.title,
+              status: t.status,
+              priority: t.priority,
+              meta: `${t.assignee} · ${t.dueDate ?? "No deadline"}`,
+              blocked: t.blocked,
+            }))
+          );
+        }
+      } else {
+        setWorkflowState("COMPLETED");
+        setEvents((e) => [...e, "✗ Action rejected by operator · task remained unmodified."]);
+      }
+    } catch {
+      setEvents((e) => [...e, "Failed to resolve approval with server."]);
+    }
+  }
+
   function approve() {
-    setApproved(true);
-    setEvents((e) => [...e, "Approval granted · workload change applied · verification passed."]);
-    setTasks((current) => current.map((t) => t.id === "4" ? { ...t, meta: "Maya · Thu" } : t));
+    resolveApproval("approve");
+  }
+
+  function reject() {
+    resolveApproval("reject");
   }
 
   return (
@@ -202,7 +263,9 @@ export default function Home() {
                   <div className="tm-card-title">Taskmaster Agent</div>
                   <div className="tm-muted" style={{ marginTop: 4, fontSize: 11 }}>Autonomous project operator</div>
                 </div>
-                <span className="tm-chip" style={{ color: "var(--success)" }}>ONLINE</span>
+                <span className="tm-chip" style={{ color: workflowState === "FAILED" ? "var(--high)" : "var(--success)" }}>
+                  {workflowState}
+                </span>
               </div>
 
               <div className="tm-agent-body">
@@ -217,7 +280,7 @@ export default function Home() {
                     <div className="tm-muted" style={{ marginTop: 6, fontSize: 11 }}>1 reassignment · affects 1 teammate</div>
                     <div className="tm-approval-actions">
                       <button className="tm-btn" onClick={approve}>Approve</button>
-                      <button className="tm-btn secondary" onClick={() => setApproved(true)}>Reject</button>
+                      <button className="tm-btn secondary" onClick={reject}>Reject</button>
                     </div>
                   </div>
                 )}

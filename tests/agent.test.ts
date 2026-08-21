@@ -150,9 +150,9 @@ describe("Milestone 2: Google ADK + Gemini Agent Foundation", () => {
       proposedActions: [
         {
           actionType: "reassign_task" as const,
-          targetIds: ["4"],
+          taskId: "4",
+          targetAssigneeId: "Maya",
           reason: "Reassign Analytics events from Rahul to Maya to relieve bottleneck.",
-          riskLevel: "medium" as const,
         },
       ],
       requiresApproval: true,
@@ -286,9 +286,9 @@ describe("Milestone 2: Google ADK + Gemini Agent Foundation", () => {
       proposedActions: [
         {
           actionType: "reassign_task" as const,
-          targetIds: ["4"],
+          taskId: "4",
+          targetAssigneeId: "Maya",
           reason: "Move task 4 to Maya",
-          riskLevel: "medium" as const,
         },
       ],
       requiresApproval: true,
@@ -322,9 +322,9 @@ describe("Milestone 2: Google ADK + Gemini Agent Foundation", () => {
       proposedActions: [
         {
           actionType: "reassign_task" as const,
-          targetIds: ["fake-task-123"],
+          taskId: "fake-task-123",
+          targetAssigneeId: "Maya",
           reason: "Reassign non-existent task",
-          riskLevel: "low" as const,
         },
       ],
       requiresApproval: false,

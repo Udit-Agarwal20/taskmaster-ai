@@ -1,5 +1,6 @@
 -- Taskmaster PostgreSQL Schema
 -- Milestone 1: Core Domain & Agent Persistence
+-- Milestone 3A: Durable Event-Driven Workflow Runtime
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -57,9 +58,22 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   goal TEXT NOT NULL,
+  trigger_type TEXT NOT NULL DEFAULT 'USER_GOAL',
+  trigger_id TEXT,
   state TEXT NOT NULL,
+  current_step TEXT NOT NULL DEFAULT 'UNDERSTANDING',
+  plan JSONB,
+  context_snapshot JSONB,
+  waiting_reason TEXT,
+  expected_event_type TEXT,
+  expected_correlation_id TEXT,
+  idempotency_key TEXT UNIQUE,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  max_retries INTEGER NOT NULL DEFAULT 3,
+  last_error TEXT,
   summary TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
 
@@ -97,6 +111,19 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  payload JSONB NOT NULL DEFAULT '{}',
+  source TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'received',
+  linked_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at TIMESTAMPTZ
+);
+
 -- Indexes for performant lookups
 CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS tasks_assignee_idx ON tasks(assignee_id);
@@ -105,6 +132,12 @@ CREATE INDEX IF NOT EXISTS tasks_due_date_idx ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS dependencies_task_idx ON dependencies(task_id);
 CREATE INDEX IF NOT EXISTS dependencies_depends_idx ON dependencies(depends_on_task_id);
 CREATE INDEX IF NOT EXISTS agent_runs_project_idx ON agent_runs(project_id);
+CREATE INDEX IF NOT EXISTS agent_runs_state_idx ON agent_runs(state);
+CREATE INDEX IF NOT EXISTS agent_runs_idempotency_idx ON agent_runs(idempotency_key);
 CREATE INDEX IF NOT EXISTS agent_steps_run_idx ON agent_steps(agent_run_id);
 CREATE INDEX IF NOT EXISTS approvals_run_idx ON approvals(agent_run_id);
 CREATE INDEX IF NOT EXISTS activity_project_idx ON activity_logs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS events_project_idx ON events(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS events_idempotency_idx ON events(idempotency_key);
+CREATE INDEX IF NOT EXISTS events_type_idx ON events(type);
+CREATE INDEX IF NOT EXISTS events_linked_run_idx ON events(linked_run_id);

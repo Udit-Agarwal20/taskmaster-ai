@@ -5,3 +5,4 @@ export * from "./dependency.repository";
 export * from "./agent-run.repository";
 export * from "./approval.repository";
 export * from "./activity.repository";
+export * from "./event.repository";

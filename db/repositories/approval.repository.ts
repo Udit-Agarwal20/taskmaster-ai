@@ -23,19 +23,33 @@ export type CreateApprovalInput = {
 };
 
 export class ApprovalRepository {
+  private mapRow(row: any): Approval {
+    return {
+      id: row.id,
+      agentRunId: row.agentRunId,
+      action: row.action,
+      payload: typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload,
+      riskLevel: row.riskLevel,
+      status: row.status,
+      approvedBy: row.approvedBy ?? null,
+      createdAt: row.createdAt,
+      resolvedAt: row.resolvedAt ?? null,
+    };
+  }
+
   async findById(id: string): Promise<Approval | null> {
-    const res = await query<Approval>(
+    const res = await query<any>(
       `SELECT id, agent_run_id AS "agentRunId", action, payload,
               risk_level AS "riskLevel", status, approved_by AS "approvedBy",
               created_at AS "createdAt", resolved_at AS "resolvedAt"
        FROM approvals WHERE id = $1`,
       [id]
     );
-    return res.rows[0] ?? null;
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
   }
 
   async listByRun(agentRunId: string): Promise<Approval[]> {
-    const res = await query<Approval>(
+    const res = await query<any>(
       `SELECT id, agent_run_id AS "agentRunId", action, payload,
               risk_level AS "riskLevel", status, approved_by AS "approvedBy",
               created_at AS "createdAt", resolved_at AS "resolvedAt"
@@ -44,11 +58,11 @@ export class ApprovalRepository {
        ORDER BY created_at ASC`,
       [agentRunId]
     );
-    return res.rows;
+    return res.rows.map((r) => this.mapRow(r));
   }
 
   async listPendingByProject(projectId: string): Promise<Approval[]> {
-    const res = await query<Approval>(
+    const res = await query<any>(
       `SELECT a.id, a.agent_run_id AS "agentRunId", a.action, a.payload,
               a.risk_level AS "riskLevel", a.status, a.approved_by AS "approvedBy",
               a.created_at AS "createdAt", a.resolved_at AS "resolvedAt"
@@ -58,12 +72,12 @@ export class ApprovalRepository {
        ORDER BY a.created_at ASC`,
       [projectId]
     );
-    return res.rows;
+    return res.rows.map((r) => this.mapRow(r));
   }
 
   async create(input: CreateApprovalInput): Promise<Approval> {
     const id = input.id ?? crypto.randomUUID();
-    const res = await query<Approval>(
+    const res = await query<any>(
       `INSERT INTO approvals (id, agent_run_id, action, payload, risk_level, status, approved_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, agent_run_id AS "agentRunId", action, payload,
@@ -79,7 +93,7 @@ export class ApprovalRepository {
         input.approvedBy ?? null,
       ]
     );
-    return res.rows[0];
+    return this.mapRow(res.rows[0]);
   }
 
   async resolve(
@@ -87,7 +101,18 @@ export class ApprovalRepository {
     status: "approved" | "rejected",
     approvedBy?: string
   ): Promise<Approval | null> {
-    const res = await query<Approval>(
+    let validUserId: string | null = null;
+    if (approvedBy) {
+      const userRes = await query<{ id: string }>(
+        `SELECT id FROM users WHERE id = $1 OR LOWER(name) = LOWER($1) LIMIT 1`,
+        [approvedBy]
+      );
+      if (userRes.rows[0]) {
+        validUserId = userRes.rows[0].id;
+      }
+    }
+
+    const res = await query<any>(
       `UPDATE approvals
        SET status = $1,
            approved_by = COALESCE($2, approved_by),
@@ -96,9 +121,9 @@ export class ApprovalRepository {
        RETURNING id, agent_run_id AS "agentRunId", action, payload,
                  risk_level AS "riskLevel", status, approved_by AS "approvedBy",
                  created_at AS "createdAt", resolved_at AS "resolvedAt"`,
-      [status, approvedBy ?? null, id]
+      [status, validUserId, id]
     );
-    return res.rows[0] ?? null;
+    return res.rows[0] ? this.mapRow(res.rows[0]) : null;
   }
 }
 

@@ -113,7 +113,11 @@ export async function verifyLocalAgent() {
     });
     console.log(`\nProposed Actions (${result.plan.proposedActions.length}):`);
     result.plan.proposedActions.forEach((a, i) => {
-      console.log(`  ${i + 1}. [${a.actionType}] Targets: [${a.targetIds.join(", ")}] — ${a.reason} (Risk: ${a.riskLevel})`);
+      if (a.actionType === "create_subtask") {
+        console.log(`  ${i + 1}. [create_subtask] Parent: ${a.parentTaskId}, Title: "${a.title}" — ${a.reason}`);
+      } else if (a.actionType === "reassign_task") {
+        console.log(`  ${i + 1}. [reassign_task] Task: ${a.taskId} -> Assignee: ${a.targetAssigneeId} — ${a.reason}`);
+      }
     });
   }
   console.log("==================================================");
