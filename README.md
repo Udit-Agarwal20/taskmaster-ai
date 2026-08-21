@@ -4,16 +4,17 @@ Taskmaster is an AI Project Operator that understands project state, plans work,
 
 ---
 
-## Milestone 1: PostgreSQL Persistence Layer
+## Milestones Overview
 
-Milestone 1 replaces the temporary in-memory data store with a robust, production-ready PostgreSQL persistence layer, complete repository data access layer, deterministic demo fixture seed script, and database-backed Next.js API endpoints.
+- **Milestone 1**: PostgreSQL Persistence Layer & Repository Pattern (Completed)
+- **Milestone 2**: Google ADK + Gemini 3.5 Flash Agent Foundation (Completed)
 
 ---
 
 ## Prerequisites
 
 - **Node.js**: v20+ (v24 recommended)
-- **PostgreSQL**: v14+ (Local instance, Docker, Neon, Supabase, Cloud SQL, etc.)
+- **PostgreSQL**: v14+ (Local instance, Docker, Neon, Supabase, Cloud SQL, or embedded PGlite for tests)
 - **npm**: v10+
 
 ---
@@ -26,14 +27,14 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-Configure `DATABASE_URL` in `.env`:
+Configure environment variables:
 
 ```env
-# PostgreSQL connection string
+# PostgreSQL connection string (Required for Taskmaster persistence)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/taskmaster
 
-# Google Gemini API Key (Optional for Milestone 1 - used in subsequent agent milestones)
-GEMINI_API_KEY=
+# Google Gemini API Key (Required for Milestone 2 - Gemini 3.5 Flash Agent Foundation)
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ---
@@ -49,7 +50,7 @@ npm run db:setup
 Or run steps individually:
 
 ### 1. Run Schema Migration
-Creates all tables, constraints, foreign keys, and indexes if not already present:
+Creates all tables, constraints, foreign keys, and indexes:
 ```bash
 npm run db:migrate
 ```
@@ -62,7 +63,91 @@ npm run db:seed
 
 ---
 
-## Local Development
+## Agent Architecture (Milestone 2)
+
+Milestone 2 establishes the **Taskmaster Root Agent** using the official Google Agent Development Kit (`@google/adk`) and Gemini 3.5 Flash (`gemini-3.5-flash`):
+
+```
+User Request ("Get this project back on track.")
+       ↓
+Next.js Agent Endpoint (`POST /api/projects/:projectId/agent`)
+       ↓
+Taskmaster Agent Executor (`agent/executor.ts`)
+       ↓ [State: UNDERSTANDING]
+Google ADK Runner (`InMemoryRunner`) + Root Agent (`LlmAgent`)
+       ↓
+Gemini 3.5 Flash (`gemini-3.5-flash`)
+       ↓
+ADK Read-Only Function Tools
+  ├── getProjectState
+  ├── getTasks
+  ├── getDependencies
+  ├── getTeamWorkload
+  ├── getProjectActivity
+  └── analyzeProject (Deterministic Service)
+       ↓
+Repository Layer (`db/repositories/`)
+       ↓
+PostgreSQL Database (`tasks`, `dependencies`, etc.)
+       ↓ [State: PLANNING]
+Step Logging (`agent_steps` in PostgreSQL)
+       ↓
+Structured Output: RecoveryPlan JSON Schema
+       ↓ [State: COMPLETED]
+Save Result to `agent_runs` & Return to UI
+```
+
+### Read-Only Tools (No Mutations in Milestone 2)
+
+1. **`getProjectState`**: Reads project metadata, status, deadline, owner, and team members.
+2. **`getTasks`**: Reads tasks for a project with optional filtering by status and assignee.
+3. **`getDependencies`**: Reads task dependency edges (`blocks`) and critical path relationships.
+4. **`getTeamWorkload`**: Aggregates active task count and workload distribution across all team members.
+5. **`getProjectActivity`**: Retrieves recent audit events from `activity_logs`.
+6. **`analyzeProject`**: Exposes deterministic facts (risk level, blockers, deadline risks, workload bottleneck).
+
+### Structured Recovery Plan Schema
+
+The agent returns a strongly-typed recovery plan adhering to `RecoveryPlanSchema`:
+
+```json
+{
+  "projectId": "student-marketplace",
+  "summary": "High-level summary of findings and proposed remedy",
+  "riskLevel": "high",
+  "findings": [
+    {
+      "type": "blocker",
+      "title": "Pricing approval blocks payment integration",
+      "explanation": "Task 1 (Pricing approval) is blocking Task 2 (Payment integration).",
+      "relatedTaskIds": ["1", "2"]
+    }
+  ],
+  "proposedActions": [
+    {
+      "actionType": "reassign_task",
+      "targetIds": ["4"],
+      "reason": "Reassign Analytics events from Rahul to Maya to relieve bottleneck.",
+      "riskLevel": "medium"
+    }
+  ],
+  "requiresApproval": true
+}
+```
+
+---
+
+## Local Agent Verification
+
+Verify read-only tools, deterministic analysis, and Gemini agent planning from the terminal:
+
+```bash
+npm run agent:verify
+```
+
+---
+
+## Development & Testing
 
 Start the Next.js development server:
 
@@ -70,13 +155,7 @@ Start the Next.js development server:
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## Running Tests
-
-Run the automated test suite (verifies database persistence, repositories, API route contracts, constraints, and analysis logic):
+Run the automated test suite (25 tests covering repositories, database persistence, API contracts, ADK tools, schemas, and agent execution):
 
 ```bash
 npm test
@@ -88,35 +167,11 @@ Run TypeScript compilation check:
 npm run typecheck
 ```
 
----
+Build for production:
 
-## Database Architecture & Domain Model
-
-The database access layer follows a strict layered architecture:
-
+```bash
+npm run build
 ```
-Next.js UI / API Routes
-         ↓
-  Service Layer (`lib/services/`)
-         ↓
-  Repository Layer (`db/repositories/`)
-         ↓
-  PostgreSQL Client (`db/client.ts` with Connection Pooling)
-         ↓
-  PostgreSQL Database (`db/schema.sql`)
-```
-
-### Tables
-
-1. **`users`**: Team member profiles and identity records.
-2. **`projects`**: Project metadata, deadline, and owner references.
-3. **`project_members`**: Many-to-many project membership with roles (`owner`, `member`, `lead`).
-4. **`tasks`**: Tasks with statuses (`todo`, `doing`, `review`, `done`), priorities (`low`, `medium`, `high`), assignees, due dates, blocked flags, and parent task references.
-5. **`dependencies`**: Directed dependency edges between tasks (`blocks`), enforcing no self-dependencies and uniqueness.
-6. **`agent_runs`**: Execution log of AI Agent goals, lifecycle states (`PLANNING`, `WAITING_FOR_APPROVAL`, `COMPLETED`), and operational summaries.
-7. **`agent_steps`**: Fine-grained audit log of every step, tool call, input payload, and execution output.
-8. **`approvals`**: Human-in-the-loop approval records for high-risk and consequential agent mutations.
-9. **`activity_logs`**: Chronological event logs for project timeline and audit trail.
 
 ---
 
@@ -126,3 +181,5 @@ Next.js UI / API Routes
 - `GET /api/projects/:projectId/tasks`: List all tasks for a given project from PostgreSQL.
 - `POST /api/projects/:projectId/tasks`: Create a new task in PostgreSQL with typed Zod validation.
 - `GET /api/projects/:projectId/analysis`: Computes real-time project risk, blocker count, deadline risks, and bottleneck metrics from PostgreSQL.
+- `POST /api/projects/:projectId/agent`: Executes the Taskmaster Google ADK agent for a specific project goal and records the agent run in PostgreSQL.
+- `POST /api/agent`: Global endpoint routing to the demo project's agent executor.

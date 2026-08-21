@@ -10,9 +10,11 @@
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
     "db:setup": "tsx db/setup.ts",
+    "agent:verify": "tsx agent/verify_local.ts",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@google/adk": "^1.6.0",
     "@google/genai": "latest",
     "ai": "latest",
     "dotenv": "^16.4.7",
