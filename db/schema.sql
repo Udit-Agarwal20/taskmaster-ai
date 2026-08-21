@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS events (
   idempotency_key TEXT UNIQUE,
   status TEXT NOT NULL DEFAULT 'received',
   linked_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   processed_at TIMESTAMPTZ
 );

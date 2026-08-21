@@ -3,11 +3,14 @@ import {
   verifyGitHubWebhookSignature,
   normalizeGitHubWebhook,
 } from "@/lib/integrations/github/webhook";
-import { workflowService } from "@/lib/services/workflow.service";
+import { eventRepository } from "@/db/repositories/event.repository";
+import { publishTaskmasterEvent } from "@/lib/cloud/pubsub";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+
   try {
     const eventHeader = req.headers.get("x-github-event");
     const deliveryId = req.headers.get("x-github-delivery");
@@ -43,23 +46,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         status: "ignored",
         reason: reason || "Event criteria not met for Taskmaster workflow processing",
+        webhookDurationMs: Date.now() - startTime,
       });
     }
 
-    // 4. Ingest and route event through Taskmaster workflow service
-    const eventResult = await workflowService.processEvent(normalizedEvent);
+    // 4. Idempotency check: reject duplicate deliveries before publishing
+    if (normalizedEvent.idempotencyKey) {
+      const existing = await eventRepository.findByIdempotencyKey(
+        normalizedEvent.idempotencyKey
+      );
+      if (existing) {
+        return NextResponse.json({
+          status: "duplicate",
+          eventId: existing.id,
+          deliveryId: normalizedEvent.payload.deliveryId,
+          eventStatus: existing.status,
+          webhookDurationMs: Date.now() - startTime,
+        });
+      }
+    }
 
+    // 5. Persist event with 'queued' status
+    const persistedEvent = await eventRepository.create({
+      ...normalizedEvent,
+      status: "queued",
+    });
+
+    // 6. Publish event message to Cloud Pub/Sub
+    const pubResult = await publishTaskmasterEvent(persistedEvent);
+
+    // 7. Fast synchronous response (No Gemini latency or mutation waiting)
+    const durationMs = Date.now() - startTime;
     return NextResponse.json({
-      status: eventResult.status === "ignored" ? "duplicate" : "processed",
-      eventId: eventResult.event.id,
-      runId: eventResult.run?.id ?? null,
-      workflowState: eventResult.run?.state ?? null,
-      summary: eventResult.run?.summary ?? null,
+      status: "queued",
+      eventId: persistedEvent.id,
+      deliveryId: normalizedEvent.payload.deliveryId,
+      topic: pubResult.topic,
+      messageId: pubResult.messageId,
+      webhookDurationMs: durationMs,
     });
   } catch (error: any) {
     console.error("POST /api/integrations/github/webhook failed:", error.message);
     return NextResponse.json(
-      { error: "Failed to process GitHub webhook", details: error.message },
+      { error: "Failed to ingest GitHub webhook", details: error.message },
       { status: 500 }
     );
   }

@@ -11,9 +11,11 @@
     "db:seed": "tsx db/seed.ts",
     "db:setup": "tsx db/setup.ts",
     "agent:verify": "tsx agent/verify_local.ts",
+    "worker": "tsx workers/event-worker.ts",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@google-cloud/pubsub": "^6.0.1",
     "@google/adk": "^1.6.0",
     "@google/genai": "latest",
     "ai": "latest",

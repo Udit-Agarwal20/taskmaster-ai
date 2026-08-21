@@ -392,31 +392,46 @@ export class WorkflowService {
   }> {
     const { type, projectId, source, idempotencyKey, payload } = input;
 
+    let event: EventRecord;
+
     // 1. Deduplicate event via idempotency key
     if (idempotencyKey) {
       const existing = await eventRepository.findByIdempotencyKey(idempotencyKey);
       if (existing) {
-        this.log("duplicate_event_ignored", {
-          idempotencyKey,
-          existingEventId: existing.id,
-          type: existing.type,
+        if (existing.status === "processed" || existing.status === "ignored") {
+          this.log("duplicate_event_ignored", {
+            idempotencyKey,
+            existingEventId: existing.id,
+            type: existing.type,
+          });
+          const linkedRun = existing.linkedRunId
+            ? await agentRunRepository.findById(existing.linkedRunId)
+            : null;
+          return { event: existing, run: linkedRun, status: "ignored" };
+        }
+        // Event was queued/processing: proceed with processing this existing event
+        event = existing;
+      } else {
+        event = await eventRepository.create({
+          type,
+          projectId,
+          source,
+          idempotencyKey: idempotencyKey ?? null,
+          payload: payload ?? {},
+          status: "received",
         });
-        const linkedRun = existing.linkedRunId
-          ? await agentRunRepository.findById(existing.linkedRunId)
-          : null;
-        return { event: existing, run: linkedRun, status: "ignored" };
       }
+    } else {
+      // 2. Persist event
+      event = await eventRepository.create({
+        type,
+        projectId,
+        source,
+        idempotencyKey: idempotencyKey ?? null,
+        payload: payload ?? {},
+        status: "received",
+      });
     }
-
-    // 2. Persist event
-    const event = await eventRepository.create({
-      type,
-      projectId,
-      source,
-      idempotencyKey: idempotencyKey ?? null,
-      payload: payload ?? {},
-      status: "received",
-    });
 
     this.log("event_received", {
       eventId: event.id,
