@@ -8,6 +8,7 @@ export type ExecuteAgentParams = {
   projectId: string;
   goal: string;
   userId?: string;
+  runId?: string;
 };
 
 export type ExecuteAgentResult = {
@@ -36,7 +37,7 @@ export function extractJsonFromText(text: string): any {
 export async function executeTaskmasterAgent(
   params: ExecuteAgentParams
 ): Promise<ExecuteAgentResult> {
-  const { projectId, goal, userId } = params;
+  const { projectId, goal, userId, runId } = params;
 
   // 1. Verify project exists
   const project = await projectRepository.findById(projectId);
@@ -44,18 +45,26 @@ export async function executeTaskmasterAgent(
     throw new Error(`Project '${projectId}' not found`);
   }
 
-  // 2. Initialize and persist agent run record (IDLE -> UNDERSTANDING)
-  const run = await agentRunRepository.create({
-    projectId,
-    goal,
-    state: "UNDERSTANDING",
-  });
+  // 2. Load existing run or initialize and persist new agent run record
+  let run = runId ? await agentRunRepository.findById(runId) : null;
+  if (!run) {
+    run = await agentRunRepository.create({
+      id: runId,
+      projectId,
+      goal,
+      state: "UNDERSTANDING",
+    });
+  }
 
   // 3. Verify GEMINI_API_KEY is available
   if (!process.env.GEMINI_API_KEY) {
     const errorSummary =
       "GEMINI_API_KEY environment variable is not configured. Please set GEMINI_API_KEY in your .env file to enable live agent planning.";
-    await agentRunRepository.updateState(run.id, "FAILED", errorSummary);
+    await agentRunRepository.updateWorkflowState(run.id, {
+      state: "FAILED",
+      summary: errorSummary,
+      lastError: errorSummary,
+    });
     return {
       agentRunId: run.id,
       state: "FAILED",
@@ -65,7 +74,8 @@ export async function executeTaskmasterAgent(
     };
   }
 
-  let stepNumber = 0;
+  const existingSteps = await agentRunRepository.getSteps(run.id);
+  let stepNumber = existingSteps.length;
   let responseText = "";
 
   try {
@@ -100,7 +110,10 @@ export async function executeTaskmasterAgent(
         });
 
         // Transition state to PLANNING once inspection begins
-        await agentRunRepository.updateState(run.id, "PLANNING");
+        await agentRunRepository.updateWorkflowState(run.id, {
+          state: "PLANNING",
+          currentStep: "PLANNING",
+        });
       }
 
       // Record Tool Responses
@@ -115,6 +128,11 @@ export async function executeTaskmasterAgent(
           output: res.response,
           status: "COMPLETED",
         });
+      }
+
+      // Check for ADK / Gemini API error
+      if (event.errorCode || event.errorMessage) {
+        throw new Error(`Gemini API error (${event.errorCode || 'UNKNOWN'}): ${event.errorMessage || 'No message'}`);
       }
 
       // Capture final text response
@@ -135,16 +153,15 @@ export async function executeTaskmasterAgent(
       projectId: parsedJson.projectId || projectId,
     });
 
-    // 7. Mark run as COMPLETED in database
-    await agentRunRepository.updateState(
-      run.id,
-      "COMPLETED",
-      validatedPlan.summary
-    );
+    // 7. Persist plan and summary to agent_runs
+    await agentRunRepository.updateWorkflowState(run.id, {
+      plan: validatedPlan,
+      summary: validatedPlan.summary,
+    });
 
     return {
       agentRunId: run.id,
-      state: "COMPLETED",
+      state: "PLANNING",
       plan: validatedPlan,
       summary: validatedPlan.summary,
       stepsCount: stepNumber,
@@ -154,7 +171,11 @@ export async function executeTaskmasterAgent(
     console.error("Agent execution failed:", errorMsg);
 
     // Mark run as FAILED in database
-    await agentRunRepository.updateState(run.id, "FAILED", errorMsg);
+    await agentRunRepository.updateWorkflowState(run.id, {
+      state: "FAILED",
+      summary: `Agent execution failed: ${errorMsg}`,
+      lastError: errorMsg,
+    });
 
     return {
       agentRunId: run.id,

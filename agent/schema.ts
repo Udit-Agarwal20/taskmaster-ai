@@ -16,26 +16,38 @@ export const FindingSchema = z.object({
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
-export const ActionTypeSchema = z.enum([
-  "create_task",
-  "create_subtask",
-  "update_task",
-  "reassign_task",
-  "change_deadline",
-  "change_priority",
-  "create_dependency",
-]);
-export type ActionType = z.infer<typeof ActionTypeSchema>;
-
 export const PlanRiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
 export type PlanRiskLevel = z.infer<typeof PlanRiskLevelSchema>;
 
-export const ProposedActionSchema = z.object({
-  actionType: ActionTypeSchema.describe("The type of mutation action recommended"),
-  targetIds: z.array(z.string()).describe("Target task or user IDs affected by this action"),
-  reason: z.string().describe("Justification for why this action resolves the issue"),
-  riskLevel: PlanRiskLevelSchema.describe("Operational risk level of this proposed action"),
+/**
+ * 1. create_subtask action schema (Automatic execution, low-risk)
+ */
+export const CreateSubtaskActionSchema = z.object({
+  actionType: z.literal("create_subtask").describe("Action to create a subtask under an existing parent task"),
+  parentTaskId: z.string().min(1).describe("ID of the parent task under which to create the subtask"),
+  title: z.string().min(1).describe("Title for the new subtask"),
+  reason: z.string().min(1).describe("Justification for why this subtask is needed to unblock or organize work"),
 });
+export type CreateSubtaskAction = z.infer<typeof CreateSubtaskActionSchema>;
+
+/**
+ * 2. reassign_task action schema (Human approval required, review-risk)
+ */
+export const ReassignTaskActionSchema = z.object({
+  actionType: z.literal("reassign_task").describe("Action to reassign an existing task to another team member"),
+  taskId: z.string().min(1).describe("ID of the task to be reassigned"),
+  targetAssigneeId: z.string().min(1).describe("Name or user ID of the target team member receiving the task"),
+  reason: z.string().min(1).describe("Justification for why reassigning this task balances workload or unblocks progress"),
+});
+export type ReassignTaskAction = z.infer<typeof ReassignTaskActionSchema>;
+
+/**
+ * Authoritative discriminated union for proposed actions in Milestone 3B.
+ */
+export const ProposedActionSchema = z.discriminatedUnion("actionType", [
+  CreateSubtaskActionSchema,
+  ReassignTaskActionSchema,
+]);
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;
 
 export const RecoveryPlanSchema = z.object({
@@ -43,7 +55,7 @@ export const RecoveryPlanSchema = z.object({
   summary: z.string().describe("High-level executive summary of project state and recovery plan"),
   riskLevel: PlanRiskLevelSchema.describe("Overall calculated project risk level"),
   findings: z.array(FindingSchema).describe("List of identified issues, blockers, and bottlenecks"),
-  proposedActions: z.array(ProposedActionSchema).describe("Ordered list of non-executed proposed actions"),
+  proposedActions: z.array(ProposedActionSchema).describe("Ordered list of proposed mutation actions"),
   requiresApproval: z.boolean().describe("Whether any proposed action requires human confirmation"),
 });
 export type RecoveryPlan = z.infer<typeof RecoveryPlanSchema>;

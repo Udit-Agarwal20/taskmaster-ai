@@ -71,9 +71,37 @@ export async function withTransaction<T>(
 }
 
 export async function runSchemaMigration(): Promise<void> {
+  const p: any = getPool();
+
+  // Ensure additive columns exist on existing databases BEFORE schema indexes are evaluated
+  const additiveSql = `
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS trigger_type TEXT NOT NULL DEFAULT 'USER_GOAL';
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS trigger_id TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS current_step TEXT NOT NULL DEFAULT 'UNDERSTANDING';
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS plan JSONB;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS context_snapshot JSONB;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS waiting_reason TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS expected_event_type TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS expected_correlation_id TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_error TEXT;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `;
+
+  try {
+    if (typeof p.exec === "function") {
+      await p.exec(additiveSql);
+    } else {
+      await p.query(additiveSql);
+    }
+  } catch {
+    // If agent_runs does not exist yet, schema.sql will create it with all columns
+  }
+
   const schemaPath = path.join(process.cwd(), "db", "schema.sql");
   const sql = fs.readFileSync(schemaPath, "utf-8");
-  const p: any = getPool();
   if (typeof p.exec === "function") {
     await p.exec(sql);
   } else {

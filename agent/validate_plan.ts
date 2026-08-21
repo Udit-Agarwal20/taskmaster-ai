@@ -65,17 +65,29 @@ export async function validatePlanGrounding(
 
   // 4. Check proposed actions references
   for (const action of plan.proposedActions) {
-    for (const targetId of action.targetIds) {
-      // Targets can be task IDs or member names
-      if (existingTaskIdSet.has(targetId)) {
-        referencedTaskIds.push(targetId);
-        validTaskIds.push(targetId);
-      } else if (existingMemberSet.has(targetId.toLowerCase())) {
-        referencedMemberIds.push(targetId);
-        validMemberIds.push(targetId);
+    if (action.actionType === "create_subtask") {
+      referencedTaskIds.push(action.parentTaskId);
+      if (existingTaskIdSet.has(action.parentTaskId)) {
+        validTaskIds.push(action.parentTaskId);
       } else {
-        missingTaskIds.push(targetId);
-        errors.push(`Proposed action '${action.actionType}' references unknown target '${targetId}'`);
+        missingTaskIds.push(action.parentTaskId);
+        errors.push(`create_subtask references non-existent parentTaskId '${action.parentTaskId}'`);
+      }
+    } else if (action.actionType === "reassign_task") {
+      referencedTaskIds.push(action.taskId);
+      if (existingTaskIdSet.has(action.taskId)) {
+        validTaskIds.push(action.taskId);
+      } else {
+        missingTaskIds.push(action.taskId);
+        errors.push(`reassign_task references non-existent taskId '${action.taskId}'`);
+      }
+
+      referencedMemberIds.push(action.targetAssigneeId);
+      if (existingMemberSet.has(action.targetAssigneeId.toLowerCase())) {
+        validMemberIds.push(action.targetAssigneeId);
+      } else {
+        missingMemberIds.push(action.targetAssigneeId);
+        errors.push(`reassign_task references non-member assignee '${action.targetAssigneeId}'`);
       }
     }
   }
