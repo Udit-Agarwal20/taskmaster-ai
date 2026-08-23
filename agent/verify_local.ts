@@ -117,6 +117,8 @@ export async function verifyLocalAgent() {
         console.log(`  ${i + 1}. [create_subtask] Parent: ${a.parentTaskId}, Title: "${a.title}" — ${a.reason}`);
       } else if (a.actionType === "reassign_task") {
         console.log(`  ${i + 1}. [reassign_task] Task: ${a.taskId} -> Assignee: ${a.targetAssigneeId} — ${a.reason}`);
+      } else if (a.actionType === "send_slack_message") {
+        console.log(`  ${i + 1}. [send_slack_message] Channel: ${a.channelId || "default"}, Message: "${a.message}" — ${a.reason}`);
       }
     });
   }
