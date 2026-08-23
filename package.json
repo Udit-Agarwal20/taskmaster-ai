@@ -10,6 +10,9 @@
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
     "db:setup": "tsx db/setup.ts",
+    "db:demo-reset": "tsx db/demo_reset.ts",
+    "demo:verify": "tsx agent/verify_demo_state.ts",
+    "demo:evaluate": "tsx agent/evaluate_demo.ts",
     "agent:verify": "tsx agent/verify_local.ts",
     "worker": "tsx workers/event-worker.ts",
     "test": "tsx --test tests/**/*.test.ts"

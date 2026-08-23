@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { projectAnalysisService } from "@/lib/services/project-analysis.service";
-import { projectRepository } from "@/db/repositories";
+import { projectRepository, activityRepository, approvalRepository } from "@/db/repositories";
 import { projectIdParamSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -26,7 +26,14 @@ export async function GET(
     }
 
     const analysis = await projectAnalysisService.analyze(projectId);
-    return NextResponse.json(analysis);
+    const recentActivities = await activityRepository.listByProject(projectId, 30);
+    const pendingApprovals = await approvalRepository.listPendingByProject(projectId);
+
+    return NextResponse.json({
+      ...analysis,
+      recentActivities,
+      pendingApprovals,
+    });
   } catch (error: any) {
     console.error("GET /api/projects/[projectId]/analysis failed:", error.message);
     return NextResponse.json(
