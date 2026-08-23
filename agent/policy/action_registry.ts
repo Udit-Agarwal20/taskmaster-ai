@@ -45,6 +45,15 @@ export const ACTION_REGISTRY: Record<string, ActionRegistryEntry> = {
     requiredPermission: "tasks:reassign",
     description: "Reassigns an existing task from one team member to another.",
   },
+  send_slack_message: {
+    actionType: "send_slack_message",
+    targetEntity: "slack_channel",
+    mutation: true,
+    enforcedRiskLevel: "AUTO",
+    requiresApproval: false,
+    requiredPermission: "slack:post_message",
+    description: "Posts a verified project update into a configured Slack channel.",
+  },
 };
 
 export type ActionPolicyResult = {

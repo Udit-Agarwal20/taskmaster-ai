@@ -551,7 +551,7 @@ export class WorkflowService {
     if (!run) throw new Error(`Workflow run '${runId}' not found`);
 
     const { getActionPolicy } = await import("../../agent/policy/action_registry");
-    const { executeCreateSubtask, executeReassignTask } = await import(
+    const { executeCreateSubtask, executeReassignTask, executeSendSlackMessage } = await import(
       "../../agent/tools/mutation_tools"
     );
 
@@ -667,6 +667,9 @@ export class WorkflowService {
           });
 
           const executedActions: any[] = [];
+          let projectMutationsSucceeded = true;
+
+          // 1. Primary project database mutations
           for (const action of allowedAutoActions) {
             if (action.actionType === "create_subtask") {
               const res = await executeCreateSubtask({
@@ -675,8 +678,22 @@ export class WorkflowService {
                 agentRunId: run.id,
               });
               if (!res.verified) {
+                projectMutationsSucceeded = false;
                 throw new Error(`Subtask verification failed: ${res.error}`);
               }
+              executedActions.push(res);
+            }
+          }
+
+          // 2. External action sinks (e.g. send_slack_message)
+          for (const action of allowedAutoActions) {
+            if (action.actionType === "send_slack_message") {
+              const res = await executeSendSlackMessage({
+                projectId: run.projectId,
+                action,
+                agentRunId: run.id,
+                projectMutationVerified: projectMutationsSucceeded,
+              });
               executedActions.push(res);
             }
           }

@@ -6,17 +6,20 @@ import {
   activityRepository,
   Task,
 } from "../../db/repositories";
-import { CreateSubtaskAction, ReassignTaskAction } from "../schema";
+import { CreateSubtaskAction, ReassignTaskAction, SendSlackMessageAction } from "../schema";
 import { getActionPolicy } from "../policy/action_registry";
+import { sendSlackMessage } from "../../lib/integrations/slack/client";
 
 export type MutationExecutionResult = {
   status: "COMPLETED" | "FAILED" | "SKIPPED";
-  actionType: "create_subtask" | "reassign_task";
+  actionType: "create_subtask" | "reassign_task" | "send_slack_message";
   taskId?: string;
   parentTaskId?: string;
   title?: string;
   previousAssignee?: string;
   newAssignee?: string;
+  messageId?: string;
+  channelId?: string;
   verified: boolean;
   error?: string;
   durationMs: number;
@@ -350,3 +353,145 @@ export async function executeReassignTask(params: {
     timings: { preconditionMs, mutationMs, verificationMs, totalMs },
   };
 }
+
+/**
+ * 3. executeSendSlackMessage (External action sink, automatic execution)
+ * Validates preconditions -> Enforces primary mutation verification -> Posts to Slack Web API -> Audits step & activity.
+ */
+export async function executeSendSlackMessage(params: {
+  projectId: string;
+  action: SendSlackMessageAction;
+  agentRunId?: string;
+  idempotencyKey?: string;
+  projectMutationVerified?: boolean;
+}): Promise<MutationExecutionResult> {
+  const startTime = Date.now();
+  const { projectId, action, agentRunId, idempotencyKey, projectMutationVerified } = params;
+
+  // 1. Policy & Precondition Validation
+  const policyStart = Date.now();
+  const policy = getActionPolicy(action);
+  if (policy.requiresApproval) {
+    throw new Error("send_slack_message unexpectedly flagged as requiring approval");
+  }
+
+  // Precondition: Must not send a successful Slack notification if primary project mutation failed
+  if (projectMutationVerified === false) {
+    return {
+      status: "FAILED",
+      actionType: "send_slack_message",
+      verified: false,
+      error: "Cannot post success update to Slack: primary project mutation failed or was not verified",
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  const preconditionMs = Date.now() - policyStart;
+
+  // 2. Idempotency Check (Check if exact message was already sent for this run)
+  const effectiveIdempotencyKey = idempotencyKey || (agentRunId ? `${agentRunId}:slack:${action.channelId || "default"}` : `slack-${Date.now()}`);
+
+  if (agentRunId) {
+    const existingSteps = await agentRunRepository.getSteps(agentRunId);
+    const alreadyExecuted = existingSteps.find(
+      (s) =>
+        s.toolName === "sendSlackMessage" &&
+        s.input?.message === action.message &&
+        s.status === "COMPLETED"
+    );
+    if (alreadyExecuted && alreadyExecuted.output?.messageId) {
+      return {
+        status: "COMPLETED",
+        actionType: "send_slack_message",
+        messageId: alreadyExecuted.output.messageId,
+        channelId: alreadyExecuted.output.channelId,
+        verified: true,
+        durationMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  // 3. Post to Slack Web API
+  const mutationStart = Date.now();
+  const sendResult = await sendSlackMessage({
+    channelId: action.channelId,
+    text: action.message,
+    idempotencyKey: effectiveIdempotencyKey,
+  });
+  const mutationMs = Date.now() - mutationStart;
+
+  // 4. Verify Delivery via API Response
+  const verifyStart = Date.now();
+  const isVerified = sendResult.ok && Boolean(sendResult.messageId || sendResult.ts);
+  const verificationMs = Date.now() - verifyStart;
+
+  if (!isVerified) {
+    // Record FAILED step
+    if (agentRunId) {
+      const steps = await agentRunRepository.getSteps(agentRunId);
+      await agentRunRepository.addStep({
+        agentRunId,
+        stepNumber: steps.length + 1,
+        stepType: "MUTATION_EXECUTION",
+        toolName: "sendSlackMessage",
+        input: { channelId: action.channelId, message: action.message, reason: action.reason },
+        output: { status: "FAILED", error: sendResult.error, channelId: sendResult.channelId },
+        status: "FAILED",
+      });
+    }
+
+    return {
+      status: "FAILED",
+      actionType: "send_slack_message",
+      channelId: sendResult.channelId,
+      verified: false,
+      error: sendResult.error || "Slack API delivery verification failed",
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  // 5. Audit Logging (agent_steps and activity_logs)
+  if (agentRunId) {
+    const steps = await agentRunRepository.getSteps(agentRunId);
+    await agentRunRepository.addStep({
+      agentRunId,
+      stepNumber: steps.length + 1,
+      stepType: "MUTATION_EXECUTION",
+      toolName: "sendSlackMessage",
+      input: { channelId: action.channelId, message: action.message, reason: action.reason },
+      output: {
+        messageId: sendResult.messageId,
+        channelId: sendResult.channelId,
+        status: "COMPLETED",
+        verified: true,
+      },
+      status: "COMPLETED",
+    });
+  }
+
+  await activityRepository.log({
+    projectId,
+    actorType: "agent",
+    actorId: agentRunId ?? null,
+    eventType: "SLACK_MESSAGE_SENT",
+    metadata: {
+      channelId: sendResult.channelId,
+      messageId: sendResult.messageId,
+      messagePreview: action.message.slice(0, 100),
+      reason: action.reason,
+      verified: true,
+    },
+  });
+
+  const totalMs = Date.now() - startTime;
+  return {
+    status: "COMPLETED",
+    actionType: "send_slack_message",
+    messageId: sendResult.messageId,
+    channelId: sendResult.channelId,
+    verified: true,
+    durationMs: totalMs,
+    timings: { preconditionMs, mutationMs, verificationMs, totalMs },
+  };
+}
+

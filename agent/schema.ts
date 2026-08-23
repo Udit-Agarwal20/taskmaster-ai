@@ -42,11 +42,23 @@ export const ReassignTaskActionSchema = z.object({
 export type ReassignTaskAction = z.infer<typeof ReassignTaskActionSchema>;
 
 /**
- * Authoritative discriminated union for proposed actions in Milestone 3B.
+ * 3. send_slack_message action schema (Automatic external action sink)
+ */
+export const SendSlackMessageActionSchema = z.object({
+  actionType: z.literal("send_slack_message").describe("Action to post a verified project update into Slack"),
+  channelId: z.string().optional().describe("Optional target Slack channel ID or name (defaults to configured channel)"),
+  message: z.string().min(1).describe("The formatted notification text to send to the team in Slack"),
+  reason: z.string().min(1).describe("Justification for why this Slack notification should be sent"),
+});
+export type SendSlackMessageAction = z.infer<typeof SendSlackMessageActionSchema>;
+
+/**
+ * Authoritative discriminated union for proposed actions in Taskmaster.
  */
 export const ProposedActionSchema = z.discriminatedUnion("actionType", [
   CreateSubtaskActionSchema,
   ReassignTaskActionSchema,
+  SendSlackMessageActionSchema,
 ]);
 export type ProposedAction = z.infer<typeof ProposedActionSchema>;
 
