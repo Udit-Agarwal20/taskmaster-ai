@@ -137,6 +137,12 @@ async function verifySlackIntegration() {
 
   console.log(`✓ Precondition Failure Guard: status=${failedSlackRes.status}, verified=${failedSlackRes.verified}, error="${failedSlackRes.error}"`);
 
+  // Cleanup test-created subtask so canonical demo state remains clean
+  if (subtaskRes.taskId) {
+    await taskRepository.delete(subtaskRes.taskId);
+    console.log(`✓ Cleaned up test subtask '${subtaskRes.taskId}' from database`);
+  }
+
   console.log("\n==================================================");
   console.log("✓ ALL SLACK INTEGRATION TESTS COMPLETED SUCCESSFULLY!");
   console.log("==================================================");

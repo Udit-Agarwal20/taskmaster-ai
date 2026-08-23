@@ -54,6 +54,18 @@ export async function POST(
     // 2. Execute workflow stage
     const executedRun = await workflowService.executeWorkflowStage(run.id);
 
+    let approvalId: string | undefined;
+    let pendingApproval: any;
+    if (executedRun.state === "WAITING_FOR_APPROVAL") {
+      const { approvalRepository } = await import("@/db/repositories");
+      const approvals = await approvalRepository.listByRun(executedRun.id);
+      const pending = approvals.find((a) => a.status === "pending");
+      if (pending) {
+        approvalId = pending.id;
+        pendingApproval = pending;
+      }
+    }
+
     return NextResponse.json({
       agentRunId: executedRun.id,
       status: executedRun.state,
@@ -64,6 +76,8 @@ export async function POST(
       summary: executedRun.summary ?? (executedRun.plan?.summary || "Planning completed."),
       waitingReason: executedRun.waitingReason,
       expectedEventType: executedRun.expectedEventType,
+      approvalId,
+      pendingApproval,
       stepsCount: 0,
     });
   } catch (error: any) {
