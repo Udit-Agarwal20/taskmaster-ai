@@ -1,28 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processPubSubWorkerMessage } from "@/lib/cloud/worker";
+import { verifyGoogleOidcToken } from "@/lib/cloud/auth";
 
 export const runtime = "nodejs";
 
 /**
  * Cloud Run Pub/Sub Push Subscription Endpoint.
- * Receives authenticated messages pushed by Google Cloud Pub/Sub,
- * validates authorization, decodes the payload, and executes the idempotent workflow.
+ * Hardened with Google Cloud IAM / OIDC ID Token verification.
+ * Only Google Cloud Pub/Sub using the authorized Service Account can invoke this endpoint.
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. Verify push authentication token when configured
-    const verificationToken = process.env.PUBSUB_VERIFICATION_TOKEN;
-    if (verificationToken) {
-      const authHeader = req.headers.get("authorization");
-      const urlToken = req.nextUrl.searchParams.get("token");
-      const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const isProduction = process.env.NODE_ENV === "production";
+    const authHeader = req.headers.get("authorization");
 
-      if (bearer !== verificationToken && urlToken !== verificationToken) {
+    // In production, strictly enforce Google Cloud IAM OIDC token validation
+    if (isProduction || authHeader) {
+      const oidcResult = await verifyGoogleOidcToken(authHeader);
+      if (!oidcResult.valid) {
+        console.warn(`[Event Worker] OIDC verification failed: ${oidcResult.error}`);
         return NextResponse.json(
-          { error: "Unauthorized: Invalid Pub/Sub verification token" },
+          {
+            error: "Unauthorized: Invalid or missing Google Cloud OIDC token",
+            details: oidcResult.error,
+          },
           { status: 401 }
         );
       }
+      console.log(`[Event Worker] OIDC verified successfully for: ${oidcResult.email}`);
     }
 
     const rawBody = await req.json();
@@ -42,7 +47,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log(`[Event Worker] Processing Pub/Sub event: ${messageData.eventId} (${messageData.eventType || "unknown"})`);
     const result = await processPubSubWorkerMessage(messageData);
+    console.log(`[Event Worker] Completed event: ${messageData.eventId}, status: ${result.status}, runId: ${result.runId}`);
 
     if (!result.success && result.status === "failed") {
       return NextResponse.json(

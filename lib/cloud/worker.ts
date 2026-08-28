@@ -48,7 +48,13 @@ export async function processPubSubWorkerMessage(
         durationMs: Date.now() - start,
       };
     }
-    throw new Error(`Event '${eventId}' not found in database`);
+    return {
+      success: true,
+      status: "ignored",
+      eventId,
+      error: `Event '${eventId}' not found in database`,
+      durationMs: Date.now() - start,
+    };
   }
 
   const { event, attemptId, isRecovery } = lease;

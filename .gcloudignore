@@ -1,6 +1,5 @@
-Dockerfile
-.dockerignore
 .gcloudignore
+.dockerignore
 node_modules
 .next
 .git

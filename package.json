@@ -23,6 +23,7 @@
     "@google/genai": "latest",
     "ai": "latest",
     "dotenv": "^16.4.7",
+    "google-auth-library": "^9.15.1",
     "next": "latest",
     "pg": "^8.13.1",
     "react": "latest",
