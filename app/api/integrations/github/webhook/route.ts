@@ -21,11 +21,13 @@ export async function POST(req: NextRequest) {
     // 1. Validate HMAC-SHA256 signature
     const isValid = verifyGitHubWebhookSignature(rawBody, signatureHeader);
     if (!isValid) {
+      console.warn(`[GitHub Webhook] Invalid or missing signature for delivery ${deliveryId}`);
       return NextResponse.json(
         { error: "Invalid or missing GitHub webhook signature" },
         { status: 401 }
       );
     }
+    console.log(`[GitHub Webhook] Signature verified successfully for delivery ${deliveryId}`);
 
     // 2. Parse JSON payload
     let payload: any;
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
     );
 
     if (!shouldProcess || !normalizedEvent) {
+      console.log(`[GitHub Webhook] Event ignored: ${reason}`);
       return NextResponse.json({
         status: "ignored",
         reason: reason || "Event criteria not met for Taskmaster workflow processing",
@@ -56,6 +59,7 @@ export async function POST(req: NextRequest) {
         normalizedEvent.idempotencyKey
       );
       if (existing) {
+        console.log(`[GitHub Webhook] Duplicate delivery ${deliveryId} ignored. Existing event: ${existing.id}`);
         return NextResponse.json({
           status: "duplicate",
           eventId: existing.id,
@@ -71,9 +75,11 @@ export async function POST(req: NextRequest) {
       ...normalizedEvent,
       status: "queued",
     });
+    console.log(`[GitHub Webhook] Event ${persistedEvent.id} persisted with status 'queued'`);
 
     // 6. Publish event message to Cloud Pub/Sub
     const pubResult = await publishTaskmasterEvent(persistedEvent);
+    console.log(`[GitHub Webhook] Event ${persistedEvent.id} published to topic ${pubResult.topic} (Message: ${pubResult.messageId})`);
 
     // 7. Fast synchronous response (No Gemini latency or mutation waiting)
     const durationMs = Date.now() - startTime;

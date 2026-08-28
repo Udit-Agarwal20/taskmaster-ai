@@ -2,7 +2,7 @@ import { LlmAgent } from "@google/adk";
 import { readOnlyTools } from "./tools/read_tools";
 import { RecoveryPlanSchema } from "./schema";
 
-export const TASKMASTER_MODEL = "gemini-3.5-flash";
+export const TASKMASTER_MODEL = process.env.TASKMASTER_MODEL || "gemini-3.5-flash";
 
 export const TASKMASTER_SYSTEM_INSTRUCTION = `
 You are Taskmaster, an AI Project Operator.
@@ -29,7 +29,7 @@ export function createTaskmasterAgent(): LlmAgent {
   return new LlmAgent({
     name: "taskmaster_agent",
     description: "Autonomous AI Project Operator for Taskmaster",
-    model: TASKMASTER_MODEL,
+    model: process.env.TASKMASTER_MODEL || "gemini-3.5-flash",
     instruction: TASKMASTER_SYSTEM_INSTRUCTION,
     tools: readOnlyTools,
     outputSchema: RecoveryPlanSchema,

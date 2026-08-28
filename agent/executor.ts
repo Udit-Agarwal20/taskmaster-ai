@@ -1,5 +1,5 @@
 import { InMemoryRunner, getFunctionCalls, getFunctionResponses, stringifyContent } from "@google/adk";
-import { taskmasterAgent } from "./taskmaster_agent";
+import { taskmasterAgent, createTaskmasterAgent } from "./taskmaster_agent";
 import { RecoveryPlan, RecoveryPlanSchema } from "./schema";
 import { agentRunRepository, projectRepository } from "../db/repositories";
 import { AgentState } from "./state";
@@ -56,10 +56,15 @@ export async function executeTaskmasterAgent(
     });
   }
 
-  // 3. Verify GEMINI_API_KEY is available
-  if (!process.env.GEMINI_API_KEY) {
+  // 3. Verify Gemini / Vertex AI authentication is available
+  const isVertexAi =
+    process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
+    process.env.USE_VERTEX_AI === "true";
+  const hasApiKey = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY);
+
+  if (!isVertexAi && !hasApiKey) {
     const errorSummary =
-      "GEMINI_API_KEY environment variable is not configured. Please set GEMINI_API_KEY in your .env file to enable live agent planning.";
+      "Neither Vertex AI (GOOGLE_GENAI_USE_VERTEXAI=true) nor GEMINI_API_KEY is configured. Please configure Google Cloud Vertex AI or set GEMINI_API_KEY.";
     await agentRunRepository.updateWorkflowState(run.id, {
       state: "FAILED",
       summary: errorSummary,
@@ -79,9 +84,10 @@ export async function executeTaskmasterAgent(
   let responseText = "";
 
   try {
-    // 4. Instantiate ADK InMemoryRunner
+    // 4. Instantiate ADK InMemoryRunner with current agent config
+    const agent = createTaskmasterAgent();
     const runner = new InMemoryRunner({
-      agent: taskmasterAgent,
+      agent,
       appName: "taskmaster",
     });
 

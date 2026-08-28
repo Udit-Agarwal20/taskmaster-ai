@@ -36,12 +36,20 @@ export function subscribeLocalPubSub(handler: LocalMessageSubscriber): () => voi
 
 let cachedPubSubClient: any = null;
 
+function getEffectiveGcpProjectId(): string | undefined {
+  return (
+    process.env.GOOGLE_CLOUD_PROJECT_ID ||
+    process.env.GCP_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.PROJECT_ID
+  );
+}
+
 async function getPubSubClient() {
   if (cachedPubSubClient) return cachedPubSubClient;
   const { PubSub } = await import("@google-cloud/pubsub");
-  cachedPubSubClient = new PubSub({
-    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-  });
+  const projectId = getEffectiveGcpProjectId();
+  cachedPubSubClient = new PubSub(projectId ? { projectId } : undefined);
   return cachedPubSubClient;
 }
 
@@ -64,15 +72,19 @@ export async function publishTaskmasterEvent(
   };
 
   let messageId = `msg-${event.id}-${Date.now()}`;
+  const gcpProjectId = getEffectiveGcpProjectId();
 
   // 1. If Google Cloud Project is configured, publish to real Cloud Pub/Sub
-  if (process.env.GOOGLE_CLOUD_PROJECT_ID && process.env.NODE_ENV !== "test") {
+  if (gcpProjectId && process.env.NODE_ENV !== "test") {
     try {
       const pubsub = await getPubSubClient();
       const topic = pubsub.topic(TASKMASTER_EVENT_TOPIC);
       const dataBuffer = Buffer.from(JSON.stringify(messageData));
       const gcpMessageId = await topic.publishMessage({ data: dataBuffer });
-      if (gcpMessageId) messageId = gcpMessageId;
+      if (gcpMessageId) {
+        messageId = gcpMessageId;
+        console.log(`[PubSub] Published message ${messageId} to topic ${TASKMASTER_EVENT_TOPIC} for event ${event.id}`);
+      }
     } catch (err: any) {
       console.warn(`[PubSub] Cloud Pub/Sub publish warning: ${err.message}. Routing to local bus.`);
     }
