@@ -71,8 +71,8 @@ async function main() {
     method: "POST",
     headers,
     body: JSON.stringify({
-      title: "Taskmaster live event test",
-      body: "Automated live verification PR for Taskmaster Milestone 4E (Cloud Run + Pub/Sub + Gemini).",
+      title: "Complete payment webhook integration",
+      body: "Implement payment webhook handler and checkout verification for Student Marketplace Launch. Staging validation is the next step.",
       head: branchName,
       base: "main",
     }),
@@ -88,7 +88,7 @@ async function main() {
     method: "PUT",
     headers,
     body: JSON.stringify({
-      commit_title: `Merge PR #${prNumber}: Taskmaster live event test`,
+      commit_title: `Merge PR #${prNumber}: Complete payment webhook integration`,
       merge_method: "merge",
     }),
   });
