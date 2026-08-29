@@ -38,7 +38,7 @@ Configure environment variables:
 
 ```env
 # PostgreSQL connection string
-DATABASE_URL=literal:postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
 
 # Google Gemini API Key
 GEMINI_API_KEY=your_gemini_api_key_here
