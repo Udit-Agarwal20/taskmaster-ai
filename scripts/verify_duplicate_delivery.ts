@@ -18,26 +18,26 @@ async function main() {
     return "sha256=" + hmac.update(payload).digest("hex");
   }
 
-  // Replay the exact same delivery ID from PR #3
-  const deliveryId = "4c90e7b0-a259-11f1-9ef1-434e965104da";
-  const duplicatePayload = JSON.stringify({
+  // Generate unique delivery ID for this test run
+  const deliveryId = `del-dup-test-${Date.now()}`;
+  const payload = JSON.stringify({
     action: "closed",
     pull_request: {
-      number: 3,
-      title: "Taskmaster live event test",
+      number: 998,
+      title: "Duplicate idempotency test",
       merged: true,
       user: { login: "Udit-Agarwal20" },
-      head: { ref: "test/live-event-1787863979405" },
+      head: { ref: "test/duplicate-branch" },
       base: { ref: "main" },
-      merged_at: "2026-08-27T20:53:04Z",
+      merged_at: new Date().toISOString(),
     },
     repository: { full_name: "Udit-Agarwal20/taskmaster-ai" },
   });
 
-  const signature = sign(duplicatePayload);
+  const signature = sign(payload);
 
-  console.log(`Replaying Delivery ID: ${deliveryId}…`);
-  const res = await fetch(WEBHOOK_URL, {
+  console.log(`1. Sending First Delivery: ${deliveryId}…`);
+  const firstRes = await fetch(WEBHOOK_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -45,15 +45,30 @@ async function main() {
       "x-github-delivery": deliveryId,
       "x-hub-signature-256": signature,
     },
-    body: duplicatePayload,
+    body: payload,
+  });
+  console.log(`First Delivery Status: ${firstRes.status} (Expected: 200)`);
+  const firstData = await firstRes.json();
+  console.log("First Delivery Response:", firstData);
+
+  console.log(`\n2. Replaying Exact Duplicate Delivery: ${deliveryId}…`);
+  const dupRes = await fetch(WEBHOOK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-github-event": "pull_request",
+      "x-github-delivery": deliveryId,
+      "x-hub-signature-256": signature,
+    },
+    body: payload,
   });
 
-  console.log(`Response Status: ${res.status} (Expected: 200)`);
-  const data = await res.json();
-  console.log("Response Body:", data);
+  console.log(`Duplicate Status: ${dupRes.status} (Expected: 200)`);
+  const dupData = await dupRes.json();
+  console.log("Duplicate Response Body:", dupData);
 
-  if (res.status !== 200 || data.status !== "duplicate") {
-    throw new Error(`Expected status 'duplicate', got: ${JSON.stringify(data)}`);
+  if (dupRes.status !== 200 || dupData.status !== "duplicate") {
+    throw new Error(`Expected status 'duplicate', got: ${JSON.stringify(dupData)}`);
   }
 
   console.log("\n==================================================");
